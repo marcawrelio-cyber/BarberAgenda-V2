@@ -22,11 +22,13 @@ async function loadShop(){try{const u=await req('/auth/v1/user',{auth:true});isM
 async function subscriptionCheck(){
  if(!shop)return true;
  try{
-  const active=await req('/rest/v1/rpc/ba2_assinatura_ativa',{method:'POST',body:{p_barbearia:shop.id},auth:true});
+  let active=await req('/rest/v1/rpc/ba2_assinatura_ativa',{method:'POST',body:{p_barbearia:shop.id},auth:true});
+  // Master também está sujeito à suspensão de sua própria barbearia.
+  if(isMaster){const shops=await req('/rest/v1/rpc/ba2_master_listar',{method:'POST',body:{},auth:true});const item=shops.find(x=>String(x.id)===String(shop.id));if(!item||item.suspensa===true||['SUSPENSA','VENCIDA','TESTE VENCIDO'].includes(item.situacao))active=false;}
   if(active===true){shopBlocked=false;lastShopCheck=Date.now();return true;}
-  shopBlocked=true;lastShopCheck=Date.now();shell(`<h1>Assinatura indisponível</h1><div class="card"><h2>Barbearia temporariamente bloqueada</h2><p>Seu teste ou assinatura venceu, ou o acesso foi suspenso. Entre em contato com o administrador para regularizar.</p>${isMaster?'<button class="btn secondary" onclick="BA.master()">👑 Painel Master</button>':''}<button class="btn secondary" onclick="BA.retryShop()">Verificar novamente</button><button class="btn secondary" onclick="BA.logout()">Sair</button></div>`);
+  shopBlocked=true;lastShopCheck=Date.now();current='blocked';shell(`<h1>Assinatura indisponível</h1><div class="card"><h2>Barbearia temporariamente bloqueada</h2><p>Seu teste ou assinatura venceu, ou o acesso foi suspenso. Entre em contato com o administrador para regularizar.</p>${isMaster?'<button class="btn secondary" onclick="BA.master()">👑 Painel Master</button>':''}<button class="btn secondary" onclick="BA.retryShop()">Verificar novamente</button><button class="btn secondary" onclick="BA.logout()">Sair</button></div>`);
   return false;
- }catch(ex){shopBlocked=true;shell(`<h1>Não foi possível verificar a assinatura</h1><div class="alert">${esc(ex.message)}</div><button class="btn" onclick="BA.retryShop()">Tentar novamente</button><button class="btn secondary" onclick="BA.logout()">Sair</button>`);return false}
+ }catch(ex){shopBlocked=true;current='blocked';shell(`<h1>Não foi possível verificar a assinatura</h1><div class="alert">${esc(ex.message)}</div><button class="btn" onclick="BA.retryShop()">Tentar novamente</button><button class="btn secondary" onclick="BA.logout()">Sair</button>`);return false}
 }
 function setupShop(){shell(`<h1>Cadastre sua barbearia</h1><p class="muted">Seu teste grátis começa quando criar a barbearia.</p><form id="form" class="card">${field('nome','Nome da barbearia','text','','required')}${field('responsavel','Nome do responsável','text','','required')}${field('whatsapp','WhatsApp com DDD','tel','','required')}<button class="btn">Criar barbearia</button><div id="msg"></div></form>`);document.getElementById('form').onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;try{const f=new FormData(e.target),u=await req('/auth/v1/user',{auth:true}),nome=f.get('nome');const payload={owner_id:u.id,nome,responsavel:f.get('responsavel'),whatsapp:f.get('whatsapp'),slug:slug(nome)+'-'+u.id.slice(0,6)};const r=await table('ba2_barbearias','select=*',{method:'POST',body:payload,auth:true,headers:{Prefer:'return=representation'}});shop=r[0];if(!await subscriptionCheck())return;await refresh();go('dashboard')}catch(ex){error(ex)}finally{b.disabled=false}}}
 async function refresh(){if(!shop)return;const q='shop_id=eq.'+shop.id+'&select=*';[services,staff,clients,appointments]=await Promise.all(['ba2_servicos','ba2_profissionais','ba2_clientes','ba2_agendamentos'].map(t=>table(t,q,{auth:true})));capabilities=await table('ba2_staff_services',q,{auth:true})}
@@ -107,7 +109,7 @@ async function myShop(){
  }catch(e){shell(`<h1>Minha barbearia</h1><div class="alert">${esc(e.message)}</div>`,masterNav())}
 }
 async function masterPage(){
- shopBlocked=false;
+ shopBlocked=false;shop=null;
  if(!isMaster){alert('Acesso exclusivo do administrador Master.');return}
  current='master';shell('<h1>👑 Painel Master</h1><div class="card">Carregando barbearias...</div>',masterNav());
  try{
@@ -120,7 +122,7 @@ async function masterPage(){
 async function masterSuspend(id,suspended){if(!isMaster)return;if(!confirm(suspended?'Suspender esta barbearia?':'Reativar esta barbearia?'))return;try{await req('/rest/v1/rpc/ba2_master_suspender',{method:'POST',body:{p_barbearia:id,p_suspensa:suspended},auth:true});await masterPage()}catch(e){alert(e.message)}}
 async function masterRenew(id){if(!isMaster)return;const d=prompt('Quantos dias de assinatura? (1 a 365)','30');if(d===null)return;const days=Number(d);if(!Number.isInteger(days)||days<1||days>365){alert('Informe de 1 a 365 dias.');return}const v=prompt('Valor em reais (exemplo: 49,90)','49,90');if(v===null)return;const amount=Number(v.trim().replace(',','.'));if(!Number.isFinite(amount)||amount<0){alert('Valor inválido.');return}if(!confirm(`Confirmar renovação de ${days} dias por ${money(amount)}?`))return;try{await req('/rest/v1/rpc/ba2_master_renovar',{method:'POST',body:{p_barbearia:id,p_dias:days,p_valor:amount},auth:true});await masterPage()}catch(e){alert(e.message)}}
 async function start(){try{const params=new URLSearchParams(location.search);if(params.has('barbearia'))return publicPage(params.get('barbearia'));try{session=JSON.parse(localStorage.getItem('ba_v2_session')||'null')}catch{}if(session?.access_token)return loadShop();home()}catch(ex){shell(`<div class="alert">Erro ao iniciar: ${esc(ex.message)}</div>`)}}
-setInterval(async()=>{if(!shop||!session?.access_token||current==='master')return;try{await subscriptionCheck()}catch(e){console.warn(e)}},10000);
+setInterval(async()=>{if(!shop||!session?.access_token||current==='master')return;try{const wasBlocked=shopBlocked;if(await subscriptionCheck()&&wasBlocked)await myShop()}catch(e){console.warn(e)}},5000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&shop&&session?.access_token&&current!=='master')subscriptionCheck()});
 window.BA={login,signup,retryShop:loadShop,myShop,capability,editEntry,master:masterPage,masterRenew,masterSuspend,logout(){saveSession(null);shop=null;shopBlocked=false;isMaster=false;home()},go,remove,status,copyLink};start();
 })();
