@@ -94,7 +94,18 @@ function advancedPage(page){
 }
 function editEntry(page,id){const isService=page==='services',entry=(isService?services:staff).find(x=>x.id===id);if(!entry)return;current=page;shell(`<h1>Editar ${isService?'serviço':'profissional'}</h1><form class="card" id="editForm">${xfield('nome','Nome','text',entry.nome,'required')}${isService?xfield('preco','Preço (R$)','number',entry.preco,'required min="0" step="0.01"')+xfield('duracao','Duração (minutos)','number',entry.duracao,'required min="5" max="600"'):xfield('whatsapp','WhatsApp','tel',entry.whatsapp||'')}<button class="btn">Salvar alterações</button><div id="msg"></div></form><button class="link" onclick="BA.go('${page}')">Voltar</button>`,nav());document.getElementById('editForm').onsubmit=async e=>{e.preventDefault();const btn=e.target.querySelector('button');btn.disabled=true;try{const f=new FormData(e.target),body={nome:String(f.get('nome')).trim()};if(isService){body.preco=Number(f.get('preco'));body.duracao=Number(f.get('duracao'))}else body.whatsapp=String(f.get('whatsapp')||'');await table(isService?'ba2_servicos':'ba2_profissionais','id=eq.'+id,{method:'PATCH',body,auth:true});await refresh();go(page)}catch(ex){error(ex)}finally{btn.disabled=false}}}
 
-const masterNav=()=>`<div class="nav"><button onclick="BA.master()">👑 Painel Master</button>${shop?'<button onclick="BA.go(\'dashboard\')">Minha barbearia</button>':''}<button onclick="BA.logout()">Sair</button></div>`;
+const masterNav=()=>`<div class="nav"><button onclick="BA.master()">👑 Painel Master</button><button onclick="BA.myShop()">✂ Minha barbearia</button><button onclick="BA.logout()">Sair</button></div>`;
+async function myShop(){
+ if(!session?.access_token)return login();
+ try{
+  const u=await req('/auth/v1/user',{auth:true});
+  const rows=await table('ba2_barbearias','select=*&owner_id=eq.'+encodeURIComponent(u.id)+'&limit=1',{auth:true});
+  shop=rows[0]||null;
+  if(!shop){if(isMaster){shell('<h1>Minha barbearia</h1><div class="card">Nenhuma barbearia vinculada a este e-mail.</div>',masterNav());return}return setupShop()}
+  if(!await subscriptionCheck())return;
+  await refresh();go('dashboard');
+ }catch(e){shell(`<h1>Minha barbearia</h1><div class="alert">${esc(e.message)}</div>`,masterNav())}
+}
 async function masterPage(){
  if(!isMaster){alert('Acesso exclusivo do administrador Master.');return}
  current='master';shell('<h1>👑 Painel Master</h1><div class="card">Carregando barbearias...</div>',masterNav());
@@ -108,5 +119,5 @@ async function masterPage(){
 async function masterSuspend(id,suspended){if(!isMaster)return;if(!confirm(suspended?'Suspender esta barbearia?':'Reativar esta barbearia?'))return;try{await req('/rest/v1/rpc/ba2_master_suspender',{method:'POST',body:{p_barbearia:id,p_suspensa:suspended},auth:true});await masterPage()}catch(e){alert(e.message)}}
 async function masterRenew(id){if(!isMaster)return;const d=prompt('Quantos dias de assinatura? (1 a 365)','30');if(d===null)return;const days=Number(d);if(!Number.isInteger(days)||days<1||days>365){alert('Informe de 1 a 365 dias.');return}const v=prompt('Valor em reais (exemplo: 49,90)','49,90');if(v===null)return;const amount=Number(v.trim().replace(',','.'));if(!Number.isFinite(amount)||amount<0){alert('Valor inválido.');return}if(!confirm(`Confirmar renovação de ${days} dias por ${money(amount)}?`))return;try{await req('/rest/v1/rpc/ba2_master_renovar',{method:'POST',body:{p_barbearia:id,p_dias:days,p_valor:amount},auth:true});await masterPage()}catch(e){alert(e.message)}}
 async function start(){try{const params=new URLSearchParams(location.search);if(params.has('barbearia'))return publicPage(params.get('barbearia'));try{session=JSON.parse(localStorage.getItem('ba_v2_session')||'null')}catch{}if(session?.access_token)return loadShop();home()}catch(ex){shell(`<div class="alert">Erro ao iniciar: ${esc(ex.message)}</div>`)}}
-window.BA={login,signup,retryShop:loadShop,capability,editEntry,master:masterPage,masterRenew,masterSuspend,logout(){saveSession(null);shop=null;isMaster=false;home()},go,remove,status,copyLink};start();
+window.BA={login,signup,retryShop:loadShop,myShop,capability,editEntry,master:masterPage,masterRenew,masterSuspend,logout(){saveSession(null);shop=null;isMaster=false;home()},go,remove,status,copyLink};start();
 })();
