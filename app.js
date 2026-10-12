@@ -88,6 +88,7 @@ async function bookingPage(sl){shell('<h1>Agendamento online</h1><p class="muted
 const mediaUrl=v=>typeof v==='string'&&v.startsWith(C.supabaseUrl+'/storage/v1/object/public/ba2-identidade/')?v:'';
 async function publicPage(sl){
  document.body.classList.remove('ba-home-screen');root.dataset.screen='content';
+ const homeStyle=document.getElementById('ba-home-light');if(homeStyle)homeStyle.remove();
  setVisual(null);shell('<div class="card">Carregando vitrine...</div>');
  try{
   const d=await req('/rest/v1/rpc/ba2_vitrine_publica',{method:'POST',body:{p_slug:sl}});if(!d?.barbearia?.id)return bookingPage(sl);
