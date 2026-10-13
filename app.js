@@ -244,6 +244,7 @@ async function masterPage(){
  current='master';shell('<h1>👑 Painel Master</h1><div class="card">Carregando barbearias...</div>',masterNav());
  try{
   const [rows,payments]=await Promise.all([req('/rest/v1/rpc/ba2_master_listar',{method:'POST',body:{},auth:true}),req('/rest/v1/rpc/ba2_master_listar_pagamentos',{method:'POST',body:{},auth:true})]);
+  rows.splice(0,rows.length,...rows.filter(x=>!String(x.nome||'').trim().toUpperCase().startsWith('[EXCLUÍDA]')));
   masterShops=rows;
   const monthKey=d=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit'}).format(new Date(d));
   const thisMonth=monthKey(new Date());
